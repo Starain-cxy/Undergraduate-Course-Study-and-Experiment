@@ -1,0 +1,379 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{ctex}       % XeLaTeX 中文支持
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{booktabs}% 表格横线美化
+\usepackage{url}
+\usepackage{subcaption}
+\geometry{margin=2.5cm}
+
+% 数学算子定义
+\DeclareMathOperator{\sgn}{sgn}
+\newcommand{\x}{\boldsymbol{x}}
+\newcommand{\muu}{\boldsymbol{\mu}}
+\newcommand{\Sig}{\boldsymbol{\Sigma}}
+\newcommand{\I}{\mathbb{I}}
+
+\title{常见分类判别模型与代价敏感学习}
+\author{}
+\date{} % 空括号代表不显示日期
+
+\begin{document}
+\maketitle
+\section*{符号与约定}
+本文统一采用如下符号体系：
+\begin{itemize}
+    \item 输入空间 $\mathcal{X} \subseteq \mathbb{R}^p$，样本 $\x \in \mathcal{X}$；输出空间 $\mathcal{Y}$ 为类别集合，二分类场景取 $\mathcal{Y} = \{+1, -1\}$，多分类场景取 $\mathcal{Y} = \{1, 2, \dots, K\}$。
+    \item 第 $j$ 类先验概率为 $P_j = P(Y=j)$，条件概率密度为 $f_j(\x) = f(\x \mid Y=j)$；后验概率记为 $p_j(\x) = P(Y=j \mid \x)$，满足贝叶斯公式 $p_j(\x) = \frac{P_j f_j(\x)}{\sum_{k=1}^K P_k f_k(\x)}$。二分类场景下简记正类后验概率为 $p(\x) = P(Y=+1 \mid \x)$。
+    \item 判决函数 $F(\x): \mathcal{X} \to \mathbb{R}$，二分类最终结果由符号函数 $\sgn(F(\x))$ 给出。
+    \item 损失函数 $L(y, F(\x))$ 表示真实类别为 $y$、判决函数输出为 $F(\x)$ 时产生的损失；经验风险为训练集上的平均损失。
+    \item 代价矩阵 $\boldsymbol{C} = (c_{ij})_{K \times K}$，其中 $c_{ij}$ 表示将真实属于第 $j$ 类的样本预测为第 $i$ 类的分类代价。约定正确分类代价为 0（$c_{jj} = 0$），错误分类代价为正（$c_{ij} > 0, \ i \neq j$）。
+    \item 二分类代价敏感场景中，正类代价权重记为 $c_+$，负类代价权重记为 $c_-$。
+\end{itemize}
+
+\section{经典判别方法与损失函数形式}
+\subsection{距离判别法}
+\subsubsection{建模思路}
+距离判别法基于“同类样本在特征空间中聚集”的假设，通过衡量样本到各类总体的距离实现分类，通常采用马氏距离以消除变量量纲与相关性的影响。
+
+设第 $j$ 类总体的均值向量为 $\muu_j$，协方差矩阵为 $\Sig_j$，则样本 $\x$ 到第 $j$ 类的马氏距离平方为：
+$$
+d^2(\x, G_j) = (\x - \muu_j)^\top \Sig_j^{-1} (\x - \muu_j)
+$$
+
+距离判别的决策规则为将样本判归距离最近的类别：
+$$
+\hat{y} = \arg\min_{j \in \mathcal{Y}} d^2(\x, G_j)
+$$
+当各类协方差矩阵相等时，马氏距离判别等价于线性判别分析，决策边界为线性超平面。
+
+\subsubsection{优化目标}
+距离判别可转化为最小化“样本-预测类别距离”损失的优化问题，损失函数定义为样本到其预测类别的马氏距离平方：
+$$
+L_{\text{dist}}(y, \hat{y}; \x) = d^2(\x, G_{\hat{y}})
+$$
+
+对应的经验风险最小化目标为：
+$$
+\min_{\hat{y}(\cdot)} \quad \frac{1}{N} \sum_{i=1}^N d^2(\x_i, G_{\hat{y}_i})
+$$
+其中 $N$ 为训练样本总数，$\hat{y}_i$ 为第 $i$ 个样本的预测类别。
+
+\subsubsection{适用性}
+计算直观简便，无需假设数据的概率分布，属于非参数判别方法；当各类协方差矩阵相等时退化为线性判别，计算量极小，适合低维、类别聚集性显著的数据；当协方差不等时采用二次判别，复杂度略有提升；高维场景下协方差矩阵估计不稳定，易出现奇异性，分类效果可能显著下降。
+
+\subsection{贝叶斯判别（最小错误率）}
+\subsubsection{建模思路}
+贝叶斯判别以最小化分类错误率为目标，等价于最大化样本后验概率。该方法采用 0-1 损失函数：正确分类无损失，错误分类损失恒为 1，对两类错误的惩罚完全对称。
+
+0-1 损失函数定义为：
+$$
+L_{01}(y, \hat{y}) = \I(\hat{y} \neq y)
+$$
+其中 $\I(\cdot)$ 为指示函数，条件成立时取值为 1，否则为 0。
+
+\subsubsection{优化目标}
+优化目标为最小化期望损失（即期望分类错误率）：
+$$
+\min_{\hat{y}(\cdot)} \quad R(\hat{y}) = \mathbb{E}_{\x, y} \left[ L_{01}(y, \hat{y}(\x)) \right]
+$$
+
+根据贝叶斯决策理论，最优决策规则为最大后验概率决策：
+$$
+\hat{y} = \arg\max_{j \in \mathcal{Y}} p_j(\x)
+$$
+
+二分类场景下，最优决策等价于：当 $p(\x) \geq 0.5$ 时判为正类，否则判为负类，决策阈值为 0.5。
+
+\subsubsection{适用性}
+理论上具有最小分类错误率，是分类问题的理论最优基准；但需要已知各类的先验概率与类条件概率密度，实际应用中常假设数据服从多元正态分布；若分布假设与实际数据偏差较大，分类效果会显著下降；适合数据分布已知或可通过样本准确估计的场景。
+
+\subsection{最小期望代价判别}
+\subsubsection{建模思路}
+最小期望代价判别是贝叶斯判别的代价敏感扩展：引入不对称的分类代价矩阵，不同类型的分类错误对应不同损失值，目标是最小化整体期望代价（贝叶斯风险），而非单纯的错误数量。
+
+损失函数由代价矩阵直接定义：真实类别为 $j$、预测为 $i$ 时，损失等于对应代价 $c_{ij}$，即
+$$
+L_{\text{cost}}(y, \hat{y}) = c_{\hat{y}\, y}
+$$
+
+\subsubsection{优化目标}
+优化目标为最小化期望代价（贝叶斯风险）：
+$$
+\min_{\hat{y}(\cdot)} \quad R_{\text{cost}}(\hat{y}) = \mathbb{E}_{\x, y} \left[ L_{\text{cost}}(y, \hat{y}(\x)) \right]
+$$
+
+对单个样本 $\x$，预测为第 $i$ 类的条件期望代价为 $\sum_{j=1}^K c_{ij} p_j(\x)$，因此最优决策为选择条件期望代价最小的类别：
+$$
+\hat{y} = \arg\min_{i \in \mathcal{Y}} \sum_{j=1}^K c_{ij} p_j(\x)
+$$
+
+二分类场景下，代入 $c_{++}=c_{--}=0$，判为正类的条件为：
+$$
+c_{+-} \cdot (1-p(\x)) \leq c_{-+} \cdot p(\x)
+$$
+整理得最优决策阈值：
+$$
+p(\x) \geq \frac{c_{+-}}{c_{+-} + c_{-+}}
+$$
+当 $c_{+-} = c_{-+}$ 时，阈值退化为 0.5，与最小错误率贝叶斯判别一致。
+
+\subsubsection{适用性}
+继承贝叶斯判别理论最优的特性，同时适配代价不对称的业务场景；同样依赖先验概率与类条件分布的假设；适合金融风控、医疗诊断、故障检测等不同误判代价差异显著的场景；代价矩阵的具体取值需结合业务经验与成本核算设定。
+
+\subsection{经典无偏损失函数}
+机器学习分类算法常通过间隔 $yF(\x)$ 构造损失函数：间隔为正（预测正确）时损失较小，间隔为负（预测错误）时损失较大。以下四类损失均为无偏损失，对两类错误的惩罚权重对称，等价于代价矩阵中两类错误代价相等的情形。
+
+\subsubsection{平方损失}
+\paragraph{建模思路}
+平方损失通过最小化预测值与真实标签的平方误差实现分类，形式简单且易于优化，将分类问题转化为回归问题求解。
+
+\paragraph{优化目标}
+损失函数形式：
+$$
+L_{\text{square}}(y, F(\x)) = \left(1 - yF(\x)\right)^2
+$$
+
+最优判决函数为：
+$$
+F^*(\x) = 2p(\x) - 1
+$$
+
+经验风险最小化目标：
+$$
+\min_{F(\cdot)} \quad \frac{1}{N} \sum_{i=1}^N \left(1 - y_i F(\x_i)\right)^2
+$$
+
+\paragraph{适用性}
+数学形式简单，具有解析最优解，优化计算效率高；对异常样本和噪声敏感，误差会被平方项放大，易受离群点干扰；适合标签噪声小、数据分布较规整的分类场景，也常用于回归式分类的简化建模。
+
+\subsubsection{指数损失}
+\paragraph{建模思路}
+指数损失对错误分类样本呈指数级增长的惩罚，是 AdaBoost 集成算法的核心损失函数，对噪声和异常点较为敏感。
+
+\paragraph{优化目标}
+损失函数形式：
+$$
+L_{\text{exp}}(y, F(\x)) = e^{-yF(\x)}
+$$
+
+最优判决函数为：
+$$
+F^*(\x) = \frac{1}{2} \ln \frac{p(\x)}{1-p(\x)}
+$$
+
+经验风险最小化目标：
+$$
+\min_{F(\cdot)} \quad \frac{1}{N} \sum_{i=1}^N e^{-y_i F(\x_i)}
+$$
+
+\paragraph{适用性}
+是 AdaBoost 集成算法的核心损失，可通过加性模型逐步迭代优化；对难分样本和离群点的惩罚呈指数增长，对噪声数据鲁棒性差；适合集成学习框架，在样本质量较高、噪声较少的场景效果较好。
+
+\subsubsection{对数损失（逻辑损失）}
+\paragraph{建模思路}
+对数损失基于概率建模，与逻辑回归模型直接对应，输出具有自然的概率意义，是广义线性模型中分类任务的标准损失函数。
+
+\paragraph{优化目标}
+损失函数形式：
+$$
+L_{\text{log}}(y, F(\x)) = \ln\left(1 + e^{-2yF(\x)}\right)
+$$
+
+最优判决函数与指数损失一致：
+$$
+F^*(\x) = \frac{1}{2} \ln \frac{p(\x)}{1-p(\x)}
+$$
+
+经验风险最小化目标：
+$$
+\min_{F(\cdot)} \quad \frac{1}{N} \sum_{i=1}^N \ln\left(1 + e^{-2y_i F(\x_i)}\right)
+$$
+
+\paragraph{适用性}
+梯度平滑，凸性良好，数值优化过程稳定；输出具有明确的概率意义，可直接输出样本属于各类的后验概率；是逻辑回归、深度神经网络分类任务的标准损失函数；适用范围广，对大部分分类场景均有较好表现，计算量中等。
+
+\subsubsection{合页损失（SVM损失）}
+\paragraph{建模思路}
+合页损失不仅要求分类正确，还要求分类间隔足够大，是支持向量机（SVM）的核心损失函数，具有稀疏性和最大间隔特性。
+
+\paragraph{优化目标}
+损失函数形式：
+$$
+L_{\text{hinge}}(y, F(\x)) = \max\left(1 - yF(\x), 0\right)
+$$
+
+最优判决函数为：
+$$
+F^*(\x) = \sgn\left(2p(\x) - 1\right)
+$$
+
+经验风险最小化目标：
+$$
+\min_{F(\cdot)} \quad \frac{1}{N} \sum_{i=1}^N \max\left(1 - y_i F(\x_i), 0\right)
+$$
+
+\paragraph{适用性}
+基于最大间隔思想，泛化能力较强，具有稀疏解（仅支持向量影响决策面）；线性可分场景下效果优异，软间隔形式可处理线性不可分数据；适合高维特征空间的分类任务；大样本下标准二次规划求解计算量较大，通常采用 SMO 或随机梯度下降算法优化。
+
+
+
+\begin{table}[htbp]
+  \centering
+  \renewcommand{\arraystretch}{2.2}
+  \caption{经典无偏损失函数汇总}
+  \label{tab:unbiased-loss}
+  \begin{tabular}{ccc}
+    \toprule
+    名称 & 形式 $L(yF(x))$ & 最优解 $F^*(x)$ \\
+    \midrule
+    平方损失 & $(y - F(x))^2 = (1 - yF(x))^2$ & $2p(x) - 1$ \\
+    指数损失 & $e^{-yF(x)}$ & $\dfrac{1}{2}\ln\dfrac{p(x)}{1-p(x)}$ \\
+    对数损失 & $\ln\!\left(1 + e^{-2yF(x)}\right)$ & $\dfrac{1}{2}\ln\dfrac{p(x)}{1-p(x)}$ \\
+    SVM损失 & $\max\!\left(1 - yF(x), 0\right)$ & $\sgn\!\left(2p(x) - 1\right)$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{fig/普通最小条件风险.png}
+\end{figure}
+
+\section{代价敏感优化相关问题}
+\subsection{代价敏感学习的核心内涵}
+传统分类算法默认所有错误的代价相等，以最小化整体错误率为目标。但在金融风控、疾病诊断、入侵检测等实际场景中，不同类型错误的实际代价差异巨大：例如将违约用户判为正常用户的损失，远高于将正常用户判为违约用户的损失。
+
+代价敏感学习的核心是在损失函数中引入不对称的代价权重，使优化目标向“降低高代价错误”的方向偏移，从而最小化业务场景下的实际总损失，而非单纯的分类错误数\cite{cs-blog}。
+
+\subsection{代价敏感损失的两类构造方式}
+将经典无偏损失扩展为代价敏感损失，主要有“损失外加权”和“损失内缩放”两种构造思路。
+
+\subsubsection{分类代价在损失函数外（重加权形式）}
+该方式直接将类别代价权重与原始损失函数相乘，形式为：
+$$
+L_{\text{cs-out}}(y, F(\x)) = c_y \cdot L(y, F(\x))
+$$
+其中 $c_y$ 为真实类别 $y$ 对应的代价权重，二分类中正类权重为 $c_+$，负类权重为 $c_-$。
+
+该形式本质是为不同类别的样本设置不同损失权重，等价于样本层面的重加权。二分类下各类损失的最优判决函数如下：
+- 平方损失：$F^*(\x) = (c_+ + c_-)p(\x) - c_-$
+- 指数损失：$F^*(\x) = \frac{1}{2} \ln \frac{c_+ p(\x)}{c_- (1-p(\x))}$
+- 对数损失：$F^*(\x) = \frac{1}{2} \ln \frac{c_+ p(\x)}{c_- (1-p(\x))}$
+- 合页损失：$F^*(\x) = \sgn\left( (c_+ + c_-)p(\x) - c_- \right)$
+
+所有损失均满足贝叶斯一致性，即最优分类决策与最小期望代价判别一致。但除合页损失外，其余损失的条件代价敏感风险不在贝叶斯分类边界处取得最大值。
+
+\paragraph{适用性}
+实现简单，直接对不同类别的损失乘以权重，无需修改损失函数内部结构，通用性强，可快速适配各类基础损失函数；等价于样本层面的重加权，效果与过采样/欠采样有相似性；理论性质略有不足，除合页损失外均不满足边界风险最大准则；适合快速迭代、对理论严谨性要求不高的工程场景。
+
+
+
+\begin{table}[htbp]
+  \centering
+  \renewcommand{\arraystretch}{2.4}
+  \caption{损失外加权型代价敏感损失汇总}
+  \label{tab:cs-out-loss}
+  \begin{tabular}{cc}
+    \toprule
+    形式 $c_y L(yF(x))$ & 最优解 $F_C^*(x)$ \\
+    \midrule
+    $c_y\!\left(1 - yF(x)\right)^2$ & $(c_+ + c_-)p(x) - c_-$ \\
+    $c_y e^{-yF(x)}$ & $\dfrac{1}{2}\ln\dfrac{c_+ p(x)}{c_- (1-p(x))}$ \\
+    $c_y \ln\!\left(1 + e^{-2yF(x)}\right)$ & $\dfrac{1}{2}\ln\dfrac{c_+ p(x)}{c_- (1-p(x))}$ \\
+    $c_y \max\!\left(1 - yF(x), 0\right)$ & $\sgn\!\left((c_+ + c_-)p(x) - c_-\right)$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{分类代价在损失函数内（间隔缩放形式）}
+该方式将代价权重嵌入损失函数内部，与间隔项 $yF(\x)$ 相乘，形式为：
+$$
+L_{\text{cs-in}}(y, F(\x)) = L\left( y \cdot c_y \cdot F(\x) \right)
+$$
+
+该形式通过缩放判决函数的有效间隔实现代价偏置，理论性质更优。四类经典损失按此方式改造后，均满足贝叶斯一致性，且条件代价敏感风险在贝叶斯分类边界处取得最大值，符合“边界样本最难分类、风险最高”的直观认知。
+
+\paragraph{适用性}
+理论性质更优，四类经典损失改造后均同时满足贝叶斯一致性与边界风险最大准则；通过缩放判决间隔实现代价偏置，对模型内部优化影响更平滑；适合对理论严谨性要求较高的场景，实现复杂度略高于外加权形式。
+
+
+
+\begin{table}[htbp]
+  \centering
+  \renewcommand{\arraystretch}{2.8}
+  \caption{损失内缩放型代价敏感损失汇总}
+  \label{tab:cs-in-loss}
+  \begin{tabular}{cc}
+    \toprule
+    形式 $L(y c_y F(x))$ & 最优解 $F_C^*(x)$ \\
+    \midrule
+    $\left(1 - y c_y F(x)\right)^2$ & $\dfrac{(c_+ + c_-)p(x) - c_-}{(c_+^2 - c_-^2)p(x) + c_-^2}$ \\[8pt]
+    $e^{-y c_y F(x)}$ & $\dfrac{1}{c_+ + c_-}\ln\dfrac{c_+ p(x)}{c_- (1-p(x))}$ \\[8pt]
+    $\ln\!\left(1 + e^{-2y c_y F(x)}\right)$ & $\dfrac{1}{c_+ + c_-}\ln\dfrac{c_+ p(x)}{c_- (1-p(x))}$ \\[8pt]
+    $\max\!\left(1 - y c_y F(x), 0\right)$ & 
+    $\begin{cases}
+    \dfrac{1}{c_+}, & p(x) \geqslant \dfrac{c_-}{c_+ + c_-}, \\[8pt]
+    -\dfrac{1}{c_-}, & \text{其他}.
+    \end{cases}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{几何意义与决策面偏移}
+从 ROC 曲线的几何视角来看，代价敏感损失的作用本质是“拉伸”原始 ROC 曲线，改变损失函数极值点与 ROC 曲线的切点位置，从而偏移模型的最优决策面\cite{cs-blog}。
+
+\begin{figure}[htbp]
+    \centering
+    \caption{代价敏感对ROC曲线与决策切点的影响}
+    \label{fig:roc-stretch}
+    \includegraphics[width=0.8\textwidth]{fig/代价敏感对ROC曲线与决策切点的影响.png}
+\end{figure}
+
+- 增大漏报（FN）的惩罚权重：ROC 曲线向真正率（TPR）方向拉伸，切点上移，最终模型召回率提升，但误报率相应上升。
+- 增大误报（FP）的惩罚权重：ROC 曲线向假正率（FPR）方向拉伸，切点左移，最终模型误报率降低，但召回率相应下降。
+
+需要注意：代价敏感损失在训练阶段改变模型的固有最优决策面；而测试阶段调整分类阈值是后处理手段。最终模型效果由 AUC（模型本身的排序能力）和阈值决策策略共同决定。
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}{.45\textwidth}
+\centering
+\includegraphics[width=\linewidth]{fig/代价在损失函数外最小风险.png}
+\caption{外部代价最小风险}
+\end{subfigure}
+\hfill
+\begin{subfigure}{.45\textwidth}
+\centering
+\includegraphics[width=\linewidth]{fig/代价在损失函数内最小风险.png}
+\caption{内部代价最小风险}
+\end{subfigure}
+\label{fig:risk-loss}
+\end{figure}
+
+\subsection{代价敏感损失的设计准则}
+一个合理的代价敏感损失函数，应满足以下两条基本准则：
+
+\subsubsection{准则一：贝叶斯一致性（单调性）}
+损失函数对应的最优分类器 $\sgn(F^*(\x))$ 必须与贝叶斯最优分类器等价，即其决策规则与最小期望代价判别完全一致。这是代价敏感损失能够正确实现代价偏置的前提。
+
+\subsubsection{准则二：边界风险最大性}
+条件代价敏感风险 $\mathbb{E}_y\left[ L_c(y, F(\x)) \mid \x \right]$ 应在贝叶斯分类边界处取得最大值。分类边界处的样本后验概率接近决策阈值，是最难区分的样本，因此条件风险最高符合理论直觉。
+
+\subsection{工程实现的主要途径}
+在实际项目中，实现代价敏感学习主要有两类方法：
+
+1. \textbf{训练集样本重缩放}
+通过调整训练集中不同类别的样本数量比例实现代价敏感，例如对高代价类进行过采样、对低代价类进行欠采样。该方法无需修改算法本身，通用性强；但过采样易导致过拟合，欠采样会丢失信息。
+
+2. \textbf{损失函数重加权}
+直接修改损失函数，为不同类别或错误类型设置不同权重，是理论上最直接的实现方式。在深度学习框架中可通过自定义损失函数轻松实现，例如为交叉熵损失添加类别权重。
+
+\begin{thebibliography}{99}
+    \bibitem{cs-blog} 森林1997. 代价敏感学习[EB/OL]. \url{https://www.cnblogs.com/McGeeForest/p/13618938.html}, 2020-09-05.
+    % 新增期刊文献bibitem，自定义标签cost-loss
+    \bibitem{cost-loss} 李秋洁,赵亚琴,顾洲. 代价敏感学习中的损失函数设计[J]. 控制理论与应用,2015,32(5):689--694.
+\end{thebibliography}
+
+\end{document}

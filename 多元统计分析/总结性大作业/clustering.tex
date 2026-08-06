@@ -1,0 +1,159 @@
+\documentclass{article}
+\usepackage[UTF8]{ctex}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+\usepackage{graphicx}
+
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+
+\title{高斯混合模型聚类与密度聚类方法}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{高斯混合模型（Gaussian Mixture Model, GMM）}
+
+\subsection{建模思路}
+
+高斯混合模型的基本出发点在于，认为观测数据集是由若干个不同的高斯分布按照一定的比例混合生成。实际数据中，不同类别的样本往往在特征空间内呈现出不同的聚集形态，而高斯分布作为自然界中最常见的分布形式，为这种聚集形态提供了一个合理的数学描述。具体实施时，该模型引入一个隐变量来表示每个样本点究竟来自于哪一个高斯分量，从而将聚类问题转化为概率模型的参数估计问题。
+
+与采用“胜者全得”策略的硬聚类算法不同，GMM对每个样本点都输出一组隶属度，即该点归属于各个簇的后验概率。这种做法在面对两个簇之间存在交叠区域的数据时显得尤为合理——处于中间地带的样本并不应被强行划归至某一侧，而是以不同的概率隶属于两侧，这种软划分的方式在后续的不确定性度量与下游决策中具有明显的优势。
+
+\subsection{数学推导}
+
+设数据集中含有$N$个$d$维样本，记作$X=\{\boldsymbol{x}_1,\boldsymbol{x}_2,\dots,\boldsymbol{x}_N\}$。假设这些样本由$K$个高斯分量混合生成，则GMM的概率密度函数可写为：
+
+\begin{equation}
+p(\boldsymbol{x}) = \sum_{k=1}^{K} \pi_k \, \mathcal{N}(\boldsymbol{x} \mid \boldsymbol{\mu}_k, \boldsymbol{\Sigma}_k)
+\end{equation}
+
+其中$\pi_k$为第$k$个分量的混合权重，满足$\sum_{k=1}^{K}\pi_k=1$且$\pi_k \geq 0$，$\mathcal{N}(\boldsymbol{x} \mid \boldsymbol{\mu}_k, \boldsymbol{\Sigma}_k)$为均值$\boldsymbol{\mu}_k$、协方差矩阵$\boldsymbol{\Sigma}_k$的多元高斯密度函数。模型待估参数即为$\Theta = \{\pi_k, \boldsymbol{\mu}_k, \boldsymbol{\Sigma}_k\}_{k=1}^{K}$。
+
+在参数估计环节，通常采用极大似然估计框架，其对数似然函数为：
+
+\begin{equation}
+\ell(\Theta) = \sum_{i=1}^{N} \ln \left\{ \sum_{k=1}^{K} \pi_k \, \mathcal{N}(\boldsymbol{x}_i \mid \boldsymbol{\mu}_k, \boldsymbol{\Sigma}_k) \right\}
+\end{equation}
+
+由于该式中对数内部存在求和运算，直接求导无法得到解析解，Dempster等人在1977年提出的期望最大化（EM）算法为这类含隐变量模型的参数估计提供了一个数值的迭代求解途径。EM算法通过以下两个步骤交替进行，直至似然函数收敛。
+
+在E步中，利用当前参数$\Theta^{(t)}$，计算每个样本$\boldsymbol{x}_i$属于第$k$个高斯分量的后验概率（即响应度）：
+
+\begin{equation}
+\gamma_{ik} = \frac{\pi_k \, \mathcal{N}(\boldsymbol{x}_i \mid \boldsymbol{\mu}_k, \boldsymbol{\Sigma}_k)}
+{\sum_{j=1}^{K} \pi_j \, \mathcal{N}(\boldsymbol{x}_i \mid \boldsymbol{\mu}_j, \boldsymbol{\Sigma}_j)}
+\end{equation}
+
+在随后的M步中，依据这些响应度对各分量参数进行加权更新：
+
+\begin{equation}
+\pi_k^{(t+1)} = \frac{1}{N} \sum_{i=1}^{N} \gamma_{ik}, \quad
+\boldsymbol{\mu}_k^{(t+1)} = \frac{\sum_{i=1}^{N} \gamma_{ik} \boldsymbol{x}_i}{\sum_{i=1}^{N} \gamma_{ik}}, \quad
+\boldsymbol{\Sigma}_k^{(t+1)} = \frac{\sum_{i=1}^{N} \gamma_{ik} (\boldsymbol{x}_i - \boldsymbol{\mu}_k^{(t+1)})(\boldsymbol{x}_i - \boldsymbol{\mu}_k^{(t+1)})^{\mathsf{T}}}{\sum_{i=1}^{N} \gamma_{ik}}
+\end{equation}
+
+可以证明，EM算法每一步迭代都能保证对数似然函数值单调不减，最终收敛至一个局部极大值点。
+
+\subsection{优缺点}
+
+从方法论的视角来看，GMM的优势体现在两个层面。其一，它提供的是概率化的聚类输出，隶属度信息不仅反映了划分的结果，也刻画了划分的置信程度，这一点对于后续的风险评估和决策支持具有重要意义。其二，通过协方差矩阵的自由参数化，GMM能够灵活地适应不同簇的形状差异——某些簇可能呈现扁平的椭球形态，另一些簇可能是球形或细长条形，这些结构在GMM框架下均能得到自然刻画。此外，GMM与经典的$K$-means算法之间存在着内在的理论联系，当假定各分量的协方差矩阵均为单位矩阵乘以同一常数时，GMM的软划分在极限意义下将退化为$K$-means的硬划分。
+
+这一模型的缺陷和$K$-means类似。1. 聚类数目$K$必须预先给定，需要借助BIC或AIC等信息准则进行辅助判断。2. EM算法的收敛结果严重依赖于初始值的选取，糟糕的初始化将导致算法陷入较差的局部最优解。3. 高维场景下协方差矩阵的估计变得极为困难，尤其当样本量相对不足时，矩阵奇异性问题时常出现。4. 该模型隐含着对数据分布形态的强假设，当实际数据严重偏离高斯分布时，聚类效果将大打折扣。
+
+\subsection{应用场景}
+
+在应用层面，高斯混合模型已渗透至多个学科领域。GMM是语音识别和说话人辨认是的传统方法，通过对语音信号的短时谱特征进行混合高斯建模，可以有效地刻画不同说话人的声学差异（Reynolds \& Rose, 1995）。在计算机视觉中，GMM被大量应用于图像分割和背景建模任务，例如将图像像素的颜色特征作为观测值，利用GMM对前景与背景进行概率化分离。金融行业中的客户信用评分和风险细分也常常借助GMM来实现，其输出的后验概率可以为差异化的风险定价提供依据。在生物信息学领域，GMM被用于基因表达数据的聚类分析，以发现具有相似表达模式的基因群组（McLachlan等，2002）。
+
+\section{密度聚类——DBSCAN算法}
+
+\subsection{建模思路}
+
+密度聚类算法的出发点和基于中心和距离的聚类方法截然不同。Ester等人于1996年提出的DBSCAN算法是该类方法的代表性成果，其核心思想是：在数据空间中，簇被定义为由高密度区域连通起来的最大集合，而低密度区域则被视为分隔不同簇的天然边界乃至噪声。这种思路不预设簇的几何形状，因而对非凸、带孔洞或呈流形分布的数据具有天然的适应性。
+
+DBSCAN通过两个参数来量化密度的概念：扫描半径$\varepsilon$和邻域内最少样本数MinPts。一个样本点如果在以它为中心、$\varepsilon$为半径的超球体内囊括了至少MinPts个其他样本，则被认定为核心点。算法的基本逻辑就是从某个核心点出发，沿着密度可达的路径不断向外扩张，所有被这种密度传播过程波及到的点归入同一个簇，而那些始终无法被任何核心点覆盖到的孤立点则被标记为噪声。
+
+\subsection{数学推导与算法流程}
+
+为了严谨地描述上述传播过程，需要引入几个形式化的定义。对于任意点$p$，其$\varepsilon$-邻域定义为：
+
+\begin{equation}
+N_\varepsilon(p) = \{ q \in D \mid \text{dist}(p, q) \leq \varepsilon \}
+\end{equation}
+
+若$|N_\varepsilon(p)| \geq \text{MinPts}$，则称$p$为核心对象。进一步地，若$p$为核心点且$q$落在$p$的$\varepsilon$-邻域中，则称$q$从$p$直接密度可达。若存在一条由核心点构成的链，使得链上相邻两点均满足直接密度可达关系，则称链的末端点从起点密度可达。最后，如果存在某个点$o$，使得$p$和$q$均从$o$密度可达，则称$p$和$q$密度相连。DBSCAN所定义的每一个簇，正是所有彼此密度相连的点的最大集合。
+
+算法的执行过程为：首先将所有点标记为未访问状态，然后依次遍历每一个未访问的点。若当前点的$\varepsilon$-邻域内样本数不足MinPts，则暂时将其标记为噪声；若满足核心点条件，则开辟一个新簇，并将该点的整个$\varepsilon$-邻域内的点纳入待扩展队列。随后不断从队列中取出新的点，判断其是否为核心点，若是则继续将其邻域内的新点加入队列，这一过程反复进行，直到队列清空，当前簇的扩张就此完成。算法继续寻找下一个尚未访问的点，直至遍历完整个数据集。
+
+\begin{figure}[htbp]
+    \centering
+    \caption{密度聚类的一个实例}
+    \label{fig:roc-stretch}
+    \includegraphics[width=\linewidth]{fig/cluster.png}
+\end{figure}
+
+\begin{algorithm}[htbp]
+\caption{DBSCAN 聚类算法}
+\label{alg:dbscan}
+\SetAlgoLined
+\KwData{数据集 $D$，半径 $\varepsilon$，最小点数 $MinPts$}
+\KwResult{簇划分结果}
+初始化所有点为 \emph{未访问} 状态\;
+$cluster\_id \leftarrow 0$\;
+\ForEach{$p \in D$}{
+    \If{$p$ 未被访问}{
+        标记 $p$ 为已访问\;
+        $N \leftarrow \varepsilon\text{-}邻域(p)$\;
+        \If{$|N| < MinPts$}{
+            标记 $p$ 为噪声\;
+        }
+        \Else{
+            $cluster\_id \leftarrow cluster\_id + 1$\;
+            将 $p$ 加入当前簇 $C_{cluster\_id}$\;
+            创建待扩展队列 $Q$，并将 $N$ 中所有点加入 $Q$\;
+            \While{$Q \neq \emptyset$}{
+                取出 $Q$ 中的首个点 $q$\;
+                \If{$q$ 未被访问}{
+                    标记 $q$ 为已访问\;
+                    $N_q \leftarrow \varepsilon\text{-}邻域(q)$\;
+                    \If{$|N_q| \geq MinPts$}{
+                        将 $N_q$ 中尚未加入任何簇的点加入 $Q$\;
+                    }
+                }
+                \If{$q$ 尚未归属于任何簇}{
+                    将 $q$ 加入当前簇 $C_{cluster\_id}$\;
+                }
+            }
+        }
+    }
+}
+输出所有簇以及噪声点\;
+\end{algorithm}
+
+\subsection{优缺点}
+
+DBSCAN最显著的优点在于其无需预先指定簇的数量，这一特性极大地方便了探索性数据分析。同时，由于算法基于局部密度进行扩张，它能够识别出任意形状的簇，无论是细长的带状、同心圆环还是复杂的螺旋结构，都能被有效地捕获。对于含有大量离群点的实际工业数据，DBSCAN能够将这些离群点自动排除在簇之外，从而避免了对聚类中心的干扰，文献[4]中指出这一特性在工业异常检测中极具价值。
+
+不过，DBSCAN在实际使用中也面临着棘手的参数选择问题。$\varepsilon$和MinPts的取值对最终聚类结果有着决定性的影响，而目前尚不存在普适性的最优参数选取准则，通常需要结合领域知识和反复试验来获得。更为棘手的是，该算法采用全局统一的密度阈值，当数据集中不同区域的密度差异悬殊时，较低的阈值会把高密度区的噪声误纳为簇成员，而较高的阈值则可能将低密度区的真实簇完全忽略。此外，高维空间中距离度量的失效问题同样困扰着DBSCAN，这也使得该算法在高维基因表达数据或文本数据上的应用受到限制。
+
+\subsection{应用场景}
+
+DBSCAN在空间数据挖掘领域有着天然的应用优势。地理信息系统中对城市热点区域、交通事故频发地点或犯罪高发街区的识别，通常借助DBSCAN对地理坐标进行密度聚类来实现（Birant \& Kut, 2007）。在工业监控和网络安全领域，由于DBSCAN能够天然地将噪声样本与正常簇区分开来，它被广泛用于风电机组异常状态预警、网络入侵流量的检测以及燃气管道漏损数据的识别。天文学中的星团成员星判别也是一个经典应用场景，星空中恒星分布的局域密度差异恰好契合了DBSCAN的基本假设。近年来，该算法在移动基站选址和城市功能区域划分等城市规划问题中也得到了成功应用，其能够根据用户轨迹或信令数据的密度分布，自动划分出人流密集的核心区域。
+
+\newpage
+\begin{thebibliography}{99}
+\bibitem{1} Dempster, A. P., Laird, N. M., \& Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. \textit{Journal of the Royal Statistical Society: Series B}, 39(1), 1-22.
+
+\bibitem{2} Reynolds, D. A., \& Rose, R. C. (1995). Robust text-independent speaker identification using Gaussian mixture speaker models. \textit{IEEE Transactions on Speech and Audio Processing}, 3(1), 72-83.
+
+\bibitem{3} McLachlan, G. J., Bean, R. W., \& Peel, D. (2002). A mixture model-based approach to the clustering of microarray expression data. \textit{Bioinformatics}, 18(3), 413-422.
+
+\bibitem{4} Ester, M., Kriegel, H. P., Sander, J., \& Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. \textit{Proceedings of the Second International Conference on Knowledge Discovery and Data Mining (KDD-96)}, 226-231.
+
+\bibitem{5} Birant, D., \& Kut, A. (2007). ST-DBSCAN: An algorithm for clustering spatial–temporal data. \textit{Data \& Knowledge Engineering}, 60(1), 208-221.
+\end{thebibliography}
+
+\end{document}
